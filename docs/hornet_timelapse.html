@@ -483,7 +483,8 @@ const D = {"seed": 20260402, "P": {"lat0": 52.58, "lat1": 52.68, "lon0": 4.72, "
     maxZoom: 19,
   }).addTo(map);
   const bounds = [[G.south, G.west], [G.north, G.east]];
-  map.fitBounds(bounds, { paddingTopLeft: [300, 10], paddingBottomRight: [10, 80] });
+  const mobile = window.innerWidth <= 640;
+  map.fitBounds(bounds, { paddingTopLeft: [mobile ? 12 : 300, 10], paddingBottomRight: [12, mobile ? 100 : 80] });
   L.rectangle(bounds, { color: "#1e2b24", weight: 1, fill: false, dashArray: "4 4", interactive: false }).addTo(map);
 
   const canvas = document.createElement("canvas"); canvas.width = sim.NX; canvas.height = sim.NY;
