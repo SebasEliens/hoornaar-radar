@@ -498,7 +498,7 @@ const D = {"seed": 20260402, "P": {"lat0": 52.58, "lat1": 52.68, "lon0": 4.72, "
 
   const layers = {
     bearings: L.layerGroup().addTo(map), searches: L.layerGroup().addTo(map), removed: L.layerGroup().addTo(map),
-    truth: L.layerGroup().addTo(map), public: L.layerGroup().addTo(map), historic: L.layerGroup().addTo(map), hives: L.layerGroup().addTo(map),
+    truth: L.layerGroup().addTo(map), public: L.layerGroup(), historic: L.layerGroup().addTo(map), hives: L.layerGroup().addTo(map),
   };
   D.public.forEach(r => L.marker([r.lat, r.lon], { icon: L.divIcon({ className: "", html: '<div style="width:6px;height:6px;background:#5b6b78;opacity:0.7;transform:rotate(45deg);margin:-3px 0 0 -3px"></div>', iconSize: [1, 1], iconAnchor: [0, 0] }), interactive: true })
     .bindTooltip(`Public record${r.year ? ", " + r.year : ""} (GBIF; Dutch records are 5×5 km squares)`).addTo(layers.public));
