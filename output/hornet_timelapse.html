@@ -1,0 +1,602 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hornet nest finder: simulated season</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1e2b24; --muted: #5d6a62; --line: #d9ddd6; --paper: #ffffff;
+    --honey: #e0a100; --honey-dark: #8a6200; --plum: #4b1d6b;
+    --found: #1f7a4d; --public: #5b6b78; --you: #c2185b;
+    --font: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: var(--font); color: var(--ink); background: #eef0ec; }
+  #app { position: relative; height: 100%; min-height: 560px; }
+  #map { position: absolute; inset: 0; }
+  .leaflet-container { font-family: var(--font); background: #e8ebe6; }
+  .panel {
+    position: absolute; top: 12px; left: 12px; z-index: 500; width: 290px; max-height: calc(100% - 110px);
+    overflow-y: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px 12px; box-shadow: 0 2px 10px rgba(30, 43, 36, .12);
+  }
+  .date { font-size: 30px; font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .stats { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; margin: 12px 0 10px; font-size: 14px; }
+  .stats dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+  .stats dt { color: var(--muted); }
+  h2 { font-size: 13px; font-weight: 700; margin: 12px 0 6px; color: var(--ink); }
+  .legend { display: grid; grid-template-columns: 22px 1fr; gap: 5px 8px; align-items: center; font-size: 13px; }
+  .ramp { height: 10px; border-radius: 3px; margin: 2px 0 2px;
+          background: linear-gradient(90deg, rgba(196,170,228,.45), #9664c4 30%, #602c8c 60%, #3e145f 85%, #2a0b40); }
+  .ramp-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .sym { width: 16px; height: 16px; display: inline-block; justify-self: center; }
+  label.opt { display: flex; gap: 8px; align-items: center; font-size: 14px; margin: 5px 0; cursor: pointer; }
+  label.opt input { width: 16px; height: 16px; accent-color: var(--plum); }
+  .mode { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: #f6f2fa; font-size: 13px; color: var(--plum); }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+  button { font-family: var(--font); }
+  .btn { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  :focus-visible { outline: 3px solid var(--honey); outline-offset: 2px; }
+  .timeline {
+    position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 500; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; display: flex; gap: 14px; align-items: center;
+    box-shadow: 0 2px 10px rgba(30, 43, 36, .12);
+  }
+  .play { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; font-size: 16px; cursor: pointer; flex: none; }
+  .track { flex: 1; min-width: 120px; }
+  .track input { width: 100%; accent-color: var(--plum); }
+  .months { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  select { font-family: var(--font); font-size: 13px; border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
+  .busy { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 600; background: var(--ink); color: #fff; font-size: 13px;
+          padding: 8px 12px; border-radius: 8px; display: none; }
+  .x-mark { font-weight: 700; font-size: 18px; line-height: 16px; text-align: center; text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
+  .crosshair .leaflet-container, .crosshair #map { cursor: crosshair !important; }
+  @media (max-width: 640px) {
+    .panel { width: auto; right: 12px; max-height: 42%; }
+    .date { font-size: 24px; }
+    .timeline { flex-wrap: wrap; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map" aria-label="Map of the study area"></div>
+  <section class="panel" aria-label="Season status and map key">
+    <div class="date" id="date">1 April</div>
+    <div class="sub" id="sub">Simulated season, Schouwen-Duiveland</div>
+    <dl class="stats">
+      <dt>Active nests (simulated truth)</dt><dd id="s-active">0</dd>
+      <dt>Removed after a detector-led search</dt><dd id="s-search">0</dd>
+      <dt>Removed after a public report</dt><dd id="s-public">0</dd>
+      <dt>Removed by you</dt><dd id="s-you">0</dd>
+      <dt>Detections, last 14 days</dt><dd id="s-det">0</dd>
+      <dt>Hives with detectors</dt><dd id="s-hives">0</dd>
+      <dt>Still active on 1 October</dt><dd id="s-repro">–</dd>
+    </dl>
+    <h2>Probability of a nest within the 450 m block</h2>
+    <div class="ramp" role="img" aria-label="Colour ramp from low to high probability"></div>
+    <div class="ramp-labels"><span>0.1</span><span>0.5</span><span>1</span></div>
+    <h2>On the map</h2>
+    <div class="legend">
+      <svg class="sym" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="#e0a100" stroke="#1e2b24" stroke-width="2"/></svg><span>Hive with detector (click to remove it)</span>
+      <svg class="sym" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="#fff" stroke="#8a6200" stroke-width="2"/></svg><span>Hive without detector (click to add one)</span>
+      <svg class="sym" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="#111" stroke="#f2c200" stroke-width="2"/></svg><span>True active nest</span>
+      <span class="sym x-mark" style="color:var(--found)">×</span><span>Removed after a search</span>
+      <span class="sym x-mark" style="color:var(--public)">×</span><span>Removed after a public report</span>
+      <span class="sym x-mark" style="color:var(--you)">×</span><span>Removed by you</span>
+      <svg class="sym" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#1e2b24" stroke-dasharray="2 2"/></svg><span>Search today</span>
+    </div>
+    <h2>Show</h2>
+    <label class="opt"><input type="checkbox" id="o-truth" checked> True nests</label>
+    <label class="opt"><input type="checkbox" id="o-bear" checked> Today's homing-flight bearings</label>
+    <label class="opt"><input type="checkbox" id="o-public" checked> Public records (GBIF, real)</label>
+    <label class="opt"><input type="checkbox" id="o-add"> Click the map to add a removed nest</label>
+    <div class="mode" id="mode" hidden>Click where a nest was destroyed. It is removed today, and any true nest within 100 m dies with it.</div>
+    <div style="display:flex; gap:8px; margin-top:10px">
+      <button class="btn" id="reset">Undo all changes</button>
+    </div>
+    <p class="note">Detector changes apply to the whole season, so the season is re-run from 1 April. Removed nests you add apply from the day shown. Nests, hornets and habitat are simulated; the basemap and public records are real.</p>
+  </section>
+  <div class="busy" id="busy" role="status" aria-live="polite">Simulating up to the selected day…</div>
+  <div class="timeline">
+    <button class="play" id="play" aria-label="Play">▶</button>
+    <div class="track">
+      <input type="range" id="day" min="0" max="243" value="0" aria-label="Day of the season">
+      <div class="months" id="months"></div>
+    </div>
+    <label style="font-size:13px; color:var(--muted)">Speed
+      <select id="speed"><option value="1">1 day</option><option value="3" selected>3 days</option><option value="7">1 week</option></select>
+    </label>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+
+// Hornet nest simulator core: same model as the notebook, ported for the interactive map.
+// Exposes createSim(D) where D is the payload written by the notebook.
+function createSim(D) {
+  const P = D.P, NB = P.n_bins, NX = D.grid.nx, NY = D.grid.ny, CELL = P.cell;
+  const NCELL = NX * NY, NH = D.hives.length, NC = D.colonies.length, T = P.season_days;
+  const TWO_PI = 2 * Math.PI;
+  const CX = new Float64Array(NCELL), CY = new Float64Array(NCELL);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) { CX[j * NX + i] = (i + 0.5) * CELL; CY[j * NX + i] = (j + 0.5) * CELL; }
+  const HX = D.hives.map(h => h.x), HY = D.hives.map(h => h.y), HW = D.hives.map(h => h.w);
+
+  // ---------- random numbers: one stream per (day, a, b, tag) so edits only change what they touch
+  function hash(a, b, c, d) {
+    let h = (D.seed ^ 0x9e3779b9) >>> 0;
+    for (const v of [a, b, c, d]) {
+      h = Math.imul(h ^ ((v | 0) + 0x7f4a7c15), 0x85ebca6b) >>> 0;
+      h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 0xc2b2ae35) >>> 0; h = (h ^ (h >>> 16)) >>> 0;
+    }
+    return h;
+  }
+  function stream(a, b, c, d) {
+    let s = hash(a, b, c, d);
+    return function () {
+      s = (s + 0x6d2b79f5) >>> 0; let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function gauss(r) { let u = 0; while (u === 0) u = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TWO_PI * r()); }
+  function poisson(r, lam) {
+    if (lam <= 0) return 0;
+    if (lam > 30) return Math.max(0, Math.round(lam + Math.sqrt(lam) * gauss(r)));
+    const L = Math.exp(-lam); let k = 0, p = 1;
+    do { k++; p *= r(); } while (p > L);
+    return k - 1;
+  }
+  function binom(r, n, p) { let k = 0; for (let i = 0; i < n; i++) if (r() < p) k++; return k; }
+
+  // ---------- model functions (mirror the notebook)
+  const SQ2PI = Math.sqrt(2 * Math.PI);
+  function lnpdf(x, m, s) { return Math.exp(-0.5 * ((x - m) / s) ** 2) / (s * SQ2PI); }
+  function kraw(d) {
+    d = Math.max(d, 1);
+    const f = lnpdf(Math.log(d), Math.log(P.kernel_median), P.kernel_sigma) / d;
+    return f / d * (1 - Math.exp(-((d / P.buffer_b) ** 2)));
+  }
+  let KNORM = 0; for (let d = 1; d <= 3000; d += (3000 - 1) / 2999) KNORM = Math.max(KNORM, kraw(d));
+  const kernel = d => kraw(d) / KNORM;
+  function activity(t) {
+    const g = 1 / (1 + Math.exp(-P.act_k * (t - P.act_mid)));
+    return t > P.act_end ? g * Math.exp(-(t - P.act_end) / P.act_decay) : g;
+  }
+  const BC = new Float64Array(NB); for (let b = 0; b < NB; b++) BC[b] = (b + 0.5) * TWO_PI / NB;
+  function siteFactors(x, y, K, G, off) {
+    // K: NH entries at K[off*NH + h]; G: NH*NB entries at G[(off*NH + h)*NB + b]
+    let s = 0; const kw = new Float64Array(NH);
+    for (let h = 0; h < NH; h++) { kw[h] = HW[h] * kernel(Math.hypot(x - HX[h], y - HY[h])); s += kw[h]; }
+    for (let h = 0; h < NH; h++) {
+      const dx = x - HX[h], dy = y - HY[h], d = Math.hypot(dx, dy);
+      K[off * NH + h] = P.p_det * kw[h] / (P.beta_away + s);
+      const phi = ((Math.atan2(dx, dy) % TWO_PI) + TWO_PI) % TWO_PI;
+      const kap = P.kappa0 / (1 + d / P.kappa_d0);
+      let mx = -Infinity; const base = (off * NH + h) * NB;
+      for (let b = 0; b < NB; b++) { const v = kap * Math.cos(BC[b] - phi); G[base + b] = v; if (v > mx) mx = v; }
+      let z = 0; for (let b = 0; b < NB; b++) { const e = Math.exp(G[base + b] - mx); G[base + b] = e; z += e; }
+      for (let b = 0; b < NB; b++) G[base + b] /= z;
+    }
+  }
+  const GK = new Float32Array(NCELL * NH), GG = new Float32Array(NCELL * NH * NB);
+  for (let c = 0; c < NCELL; c++) siteFactors(CX[c], CY[c], GK, GG, c);
+  // sparse neighbour lists: hives that a nest in cell c could plausibly visit
+  const NBR = [];
+  for (let c = 0; c < NCELL; c++) { const l = []; for (let h = 0; h < NH; h++) if (GK[c * NH + h] > 1e-4) l.push(h); NBR.push(Int32Array.from(l)); }
+  const COLS = D.colonies;
+  const CK = new Float32Array(NC * 2 * NH), CG = new Float32Array(NC * 2 * NH * NB);
+  COLS.forEach((c, i) => { siteFactors(c.px, c.py, CK, CG, 2 * i); siteFactors(c.sx, c.sy, CK, CG, 2 * i + 1); });
+  const reloc = COLS.map(c => (c.reloc === null ? Infinity : c.reloc));
+  const pubPri = COLS.map(c => (c.pub_pri === null ? Infinity : c.pub_pri));
+  const pubSec = COLS.map(c => (c.pub_sec === null ? Infinity : c.pub_sec));
+
+  const QHH = P.q_HH, QFH = P.q_FH;
+  const PH = P.p_homing * QHH + (1 - P.p_homing) * QFH;
+  const PC = [PH, 1 - PH];
+  const PI = [P.p_homing * P.pi_dir * QHH / PH, P.p_homing * P.pi_dir * (1 - QHH) / (1 - PH)];
+  const CLUT = [QFH, 1 - QFH];
+
+  // ---------- state
+  const S = {
+    detectors: Uint8Array.from(D.hives.map(h => (h.detector ? 1 : 0))),
+    userRemovals: [],            // {x, y, day}
+  };
+  let sim = null;
+
+  function siteOf(i, d) { return d >= reloc[i] ? 1 : 0; }
+  function sitePos(i, d) { const c = COLS[i]; return siteOf(i, d) ? [c.sx, c.sy] : [c.px, c.py]; }
+
+  function reset() {
+    sim = {
+      day: -1,
+      counts: [],                 // per day Int32Array(NH*2*NB)
+      bearings: [],               // per day: [h, bin] for class-H detections (for drawing)
+      removed: new Float64Array(NC).fill(Infinity), removedBy: new Array(NC).fill(""),
+      known: [],                  // {x, y, day, how, colony, K, G}
+      searches: [], blocked: [], maps: new Map(),
+    };
+  }
+
+  function addKnown(x, y, day, how, colony) {
+    const K = new Float32Array(NH), G = new Float32Array(NH * NB);
+    siteFactors(x, y, K, G, 0);
+    sim.known.push({ x, y, day, how, colony, K, G });
+  }
+  function remove(i, day, how, at) {
+    sim.removed[i] = day; sim.removedBy[i] = how;
+    const [x, y] = at || sitePos(i, day - 1);
+    addKnown(x, y, day, how, i);
+  }
+
+  function genSource(cnt, bear, r, lam, Gbase, Garr, h) {
+    const n = poisson(r, lam); if (!n) return;
+    const nh = binom(r, n, P.p_homing), nf = n - nh;
+    const nd = binom(r, nh, P.pi_dir), nu = nh - nd;
+    for (let k = 0; k < nd; k++) {
+      const cls = r() < QHH ? 0 : 1;
+      let u = r(), b = 0; for (; b < NB - 1; b++) { u -= Garr[Gbase + b]; if (u <= 0) break; }
+      cnt[(h * 2 + cls) * NB + b]++; if (cls === 0) bear.push(h, b);
+    }
+    for (let k = 0; k < nu + nf; k++) {
+      const cls = r() < (k < nu ? QHH : QFH) ? 0 : 1, b = Math.floor(r() * NB);
+      cnt[(h * 2 + cls) * NB + b]++; if (cls === 0) bear.push(h, b);
+    }
+  }
+
+  function stepDay(d) {
+    const found = i => COLS[i].found <= d;
+    // user removals entered for this day
+    for (const u of S.userRemovals) if (u.day === d) {
+      let best = -1, bd = 100;
+      for (let i = 0; i < NC; i++) if (found(i) && sim.removed[i] > d) {
+        const [x, y] = sitePos(i, d); const dist = Math.hypot(x - u.x, y - u.y);
+        if (dist < bd) { bd = dist; best = i; }
+      }
+      if (best >= 0) remove(best, d, "you", [u.x, u.y]); else addKnown(u.x, u.y, d, "you", -1);
+    }
+    for (let i = 0; i < NC; i++) if (found(i) && sim.removed[i] > d) {
+      const sec = d >= COLS[i].switch;
+      if ((!sec && d >= pubPri[i]) || (sec && d >= pubSec[i])) remove(i, d, "public");
+    }
+    const cnt = new Int32Array(NH * 2 * NB), bear = [];
+    const act = activity(d);
+    for (let h = 0; h < NH; h++) {
+      if (!S.detectors[h]) continue;
+      for (let i = 0; i < NC; i++) {
+        if (!(found(i) && sim.removed[i] > d)) continue;
+        const s = 2 * i + siteOf(i, d), lam = COLS[i].amax * act * CK[s * NH + h];
+        if (lam < 1e-4) continue;
+        genSource(cnt, bear, stream(d, h, i, 1), lam, (s * NH + h) * NB, CG, h);
+      }
+      const r = stream(d, h, -1, 3), n = poisson(r, P.clutter_rate);
+      for (let k = 0; k < n; k++) { const cls = r() < QFH ? 0 : 1, b = Math.floor(r() * NB); cnt[(h * 2 + cls) * NB + b]++; if (cls === 0) bear.push(h, b); }
+    }
+    sim.counts[d] = cnt; sim.bearings[d] = bear;
+    const weekly = d >= P.search_start && (d - P.search_start) % P.search_every === 0;
+    if (weekly && S.detectors.some(v => v)) {
+      const res = infer(d); sim.maps.set(d, res);
+      search(d, res.p3);
+    }
+    sim.day = d;
+  }
+
+  function windowCounts(d) {
+    const lo = Math.max(0, d - P.window + 1), n = new Float64Array(NH * 2 * NB);
+    for (let t = lo; t <= d; t++) { const c = sim.counts[t]; for (let k = 0; k < c.length; k++) n[k] += c[k]; }
+    return { n, lo };
+  }
+
+  function aRef(t) { return P.act_max_median * Math.max(activity(t), 0.05); }
+
+  function box3(z) {
+    const out = new Float64Array(NCELL);
+    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+      let s = 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const jj = j + dj, ii = i + di;
+        if (jj >= 0 && jj < NY && ii >= 0 && ii < NX) s += z[jj * NX + ii];
+      }
+      out[j * NX + i] = s;
+    }
+    return out;
+  }
+
+  function infer(d) {
+    const W = Math.min(P.window, d + 1);
+    const hs = []; for (let h = 0; h < NH; h++) if (S.detectors[h]) hs.push(h);
+    const lam0 = P.nest_density * (CELL * CELL / 1e6) * 0.5;
+    const lam = new Float64Array(NCELL);
+    if (!hs.length) { lam.fill(lam0); return finish(lam); }
+    const { n, lo } = windowCounts(d);
+    const expo = new Float64Array(NCELL);
+    for (let c = 0; c < NCELL; c++) { let s = 0; for (const h of hs) s += GK[c * NH + h]; expo[c] = W * s; }
+    const kn = sim.known.filter(k => k.day > lo).map(k => ({ ...k, E: Math.min(P.window, k.day - lo) }));
+    const hd = hs.filter(h => { for (let k = 0; k < 2 * NB; k++) if (n[h * 2 * NB + k] > 0) return true; return false; });
+    const hasData = new Uint8Array(NH); for (const h of hd) hasData[h] = 1;
+    let total = 0; for (let k = 0; k < n.length; k++) total += n[k];
+    let es = 0; for (let c = 0; c < NCELL; c++) es += expo[c];
+    const init = Math.max(total, 1) / (es + 1e-9);
+    const mu = new Float64Array(NCELL); for (let c = 0; c < NCELL; c++) mu[c] = expo[c] > 1e-6 ? init : 0;
+    const mus = new Float64Array(kn.length).fill(init);
+    const GA = new Float64Array(NH * NB), sA = new Float64Array(NH), rdir = new Float64Array(NH * NB), rund = new Float64Array(NH);
+    const cl = [P.clutter_rate * W * CLUT[0] / NB, P.clutter_rate * W * CLUT[1] / NB];
+    for (let it = 0; it < P.em_iter; it++) {
+      GA.fill(0); sA.fill(0);
+      for (let c = 0; c < NCELL; c++) {
+        const m = mu[c] * W; if (m <= 0) continue;
+        for (const h of NBR[c]) {
+          if (!hasData[h]) continue;
+          const a = m * GK[c * NH + h];
+          sA[h] += a; const gb = (c * NH + h) * NB, ob = h * NB;
+          for (let b = 0; b < NB; b++) GA[ob + b] += a * GG[gb + b];
+        }
+      }
+      kn.forEach((k, s) => {
+        const m = mus[s] * k.E; if (m <= 0) return;
+        for (const h of hd) { const a = m * k.K[h]; sA[h] += a; for (let b = 0; b < NB; b++) GA[h * NB + b] += a * k.G[h * NB + b]; }
+      });
+      rdir.fill(0); rund.fill(0);
+      for (const h of hd) for (let cls = 0; cls < 2; cls++) for (let b = 0; b < NB; b++) {
+        const v = n[(h * 2 + cls) * NB + b]; if (!v) continue;
+        const pred = cl[cls] + PC[cls] * (PI[cls] * GA[h * NB + b] + (1 - PI[cls]) * sA[h] / NB);
+        const ratio = v / Math.max(pred, 1e-12);
+        rdir[h * NB + b] += PC[cls] * PI[cls] * ratio; rund[h] += PC[cls] * (1 - PI[cls]) / NB * ratio;
+      }
+      for (let c = 0; c < NCELL; c++) {
+        if (expo[c] <= 1e-6) continue;
+        let s = 0;
+        for (const h of NBR[c]) {
+          if (!hasData[h]) continue;
+          const k = GK[c * NH + h];
+          const gb = (c * NH + h) * NB, ob = h * NB; let dot = 0;
+          for (let b = 0; b < NB; b++) dot += GG[gb + b] * rdir[ob + b];
+          s += k * (dot + rund[h]);
+        }
+        mu[c] *= W * s / expo[c];
+      }
+      kn.forEach((k, s) => {
+        let e = 0, bk = 0;
+        for (const h of hs) e += k.K[h];
+        for (const h of hd) { let dot = 0; for (let b = 0; b < NB; b++) dot += k.G[h * NB + b] * rdir[h * NB + b]; bk += k.K[h] * (dot + rund[h]); }
+        mus[s] = e > 1e-9 ? mus[s] * bk / e : 0;
+      });
+    }
+    const ar = aRef(d);
+    for (let c = 0; c < NCELL; c++) lam[c] = mu[c] / ar + lam0 * Math.exp(-ar * expo[c]);
+    return finish(lam);
+  }
+  function finish(lam) {
+    const b = box3(lam), p3 = new Float32Array(NCELL);
+    for (let c = 0; c < NCELL; c++) p3[c] = 1 - Math.exp(-b[c]);
+    return { p3 };
+  }
+
+  function search(d, p3in) {
+    const p3 = Float64Array.from(p3in);
+    sim.blocked = sim.blocked.filter(b => b[2] > d);
+    for (const [bx, by] of sim.blocked) for (let c = 0; c < NCELL; c++) if (Math.hypot(CX[c] - bx, CY[c] - by) < P.search_radius) p3[c] = 0;
+    const order = Array.from(p3.keys()).sort((a, b) => p3[b] - p3[a]);
+    const chosen = [];
+    for (const c of order) {
+      if (p3[c] < P.p_thresh || chosen.length >= P.teams) break;
+      if (chosen.every(o => Math.hypot(CX[c] - CX[o], CY[c] - CY[o]) >= P.nms_radius)) chosen.push(c);
+    }
+    for (const c of chosen) {
+      let best = -1, bd = 200.0001;
+      for (let i = 0; i < NC; i++) if (COLS[i].found <= d && sim.removed[i] > d) {
+        const [x, y] = sitePos(i, d), dist = Math.hypot(x - CX[c], y - CY[c]);
+        if (dist < bd) { bd = dist; best = i; }
+      }
+      let ok = false;
+      if (best >= 0) {
+        const pf = d >= COLS[best].switch ? P.p_find_secondary : P.p_find_primary;
+        if (stream(d, c, 0, 2)() < pf) { remove(best, d + 1, "search"); ok = true; }
+      }
+      sim.searches.push({ day: d, x: CX[c], y: CY[c], p: p3in[c], success: ok });
+      if (!ok) sim.blocked.push([CX[c], CY[c], d + 14]);
+    }
+  }
+
+  function runTo(d) { d = Math.min(d, T - 1); while (sim.day < d) stepDay(sim.day + 1); }
+  function mapFor(d) {
+    runTo(d);
+    if (!sim.maps.has(d)) sim.maps.set(d, infer(d));
+    return sim.maps.get(d).p3;
+  }
+  function stateAt(d) {
+    runTo(d);
+    const active = [], removed = [];
+    for (let i = 0; i < NC; i++) {
+      if (COLS[i].found > d) continue;
+      if (sim.removed[i] > d) { const [x, y] = sitePos(i, d); active.push({ i, x, y, secondary: d >= reloc[i] }); }
+    }
+    for (const k of sim.known) if (k.day <= d) removed.push(k);
+    const lo = Math.max(0, d - P.window + 1); let win = 0;
+    for (let t = lo; t <= d; t++) { const c = sim.counts[t]; for (let k = 0; k < c.length; k++) win += c[k]; }
+    const repro = P.reproduction_day;
+    let activeRepro = null;
+    if (d >= repro) { activeRepro = 0; for (let i = 0; i < NC; i++) if (COLS[i].found <= repro && sim.removed[i] > repro) activeRepro++; }
+    return { active, removed, bearings: sim.bearings[d] || [], searches: sim.searches.filter(s => s.day === d),
+             windowDetections: win, activeRepro, founded: COLS.filter(c => c.found <= d).length };
+  }
+
+  reset();
+  return {
+    S, reset, runTo, mapFor, stateAt, NX, NY, NCELL, CX, CY, T, NB,
+    toggleDetector(h) { S.detectors[h] = S.detectors[h] ? 0 : 1; reset(); },
+    addRemoval(x, y, day) { S.userRemovals.push({ x, y, day }); reset(); },
+    clearEdits() { S.detectors = Uint8Array.from(D.hives.map(h => (h.detector ? 1 : 0))); S.userRemovals = []; reset(); },
+    summary() {
+      const by = { search: 0, public: 0, you: 0 };
+      sim.removedBy.forEach(b => { if (b) by[b]++; });
+      return { removedBy: by, searches: sim.searches.length, success: sim.searches.filter(s => s.success).length };
+    },
+  };
+}
+if (typeof module !== "undefined") module.exports = { createSim };
+
+</script>
+<script>
+const D = {"seed": 20260402, "P": {"lat0": 51.64, "lat1": 51.69, "lon0": 3.86, "lon1": 3.975, "cell": 150.0, "start_date": "2026-04-01", "season_days": 244.0, "nest_density": 1.5, "found_day_max": 40.0, "p_relocate": 0.7, "reloc_day_mean": 95.0, "reloc_day_sd": 15.0, "reloc_dist_median": 150.0, "act_max_median": 30.0, "act_max_sigma": 0.6, "act_mid": 120.0, "act_k": 0.06, "act_end": 225.0, "act_decay": 7.0, "kernel_median": 350.0, "kernel_sigma": 0.55, "buffer_b": 40.0, "beta_away": 1.0, "p_det": 0.8, "p_homing": 0.5, "pi_dir": 0.6, "kappa0": 12.0, "kappa_d0": 500.0, "clutter_rate": 0.3, "n_bins": 24.0, "window": 14.0, "em_iter": 30.0, "search_start": 45.0, "search_every": 7.0, "teams": 3.0, "p_thresh": 0.25, "search_radius": 150.0, "nms_radius": 300.0, "p_find_primary": 0.8, "p_find_secondary": 0.55, "public_h_primary": 0.002, "public_h_secondary": 0.002, "reproduction_day": 183.0, "detector_share": 0.5, "v_star": 5.590012578082471, "q_HH": 0.8732315084979034, "q_FH": 0.3216112183393105}, "start_date": "2026-04-01", "geo": {"lat0": 51.64, "lon0": 3.86, "latc": 51.665, "coslat": 0.6202583087326096, "R": 6371000.0}, "grid": {"nx": 52, "ny": 37, "south": 51.64, "west": 3.86, "north": 51.68991234912849, "east": 3.9730933423608534}, "hives": [{"x": 1456.4239301146827, "y": 4263.816435278312, "lat": 51.67834542243917, "lon": 3.8811169038655127, "colonies": 2, "w": 0.6104650768733287, "detector": false}, {"x": 2895.110574993818, "y": 4860.493191065736, "lat": 51.68371146542146, "lon": 3.9019766322346543, "colonies": 2, "w": 0.6104650768733287, "detector": true}, {"x": 7576.20377800729, "y": 1087.8418673772392, "lat": 51.64978319695155, "lon": 3.969848488161765, "colonies": 22, "w": 2.024683607604297, "detector": true}, {"x": 893.3599992165366, "y": 2857.9956530992536, "lat": 51.66570257240454, "lon": 3.872952957467037, "colonies": 12, "w": 1.495327944128563, "detector": false}, {"x": 5671.868998015981, "y": 308.2433423336322, "lat": 51.642772098976415, "lon": 3.9422372592844273, "colonies": 2, "w": 0.6104650768733287, "detector": false}, {"x": 6509.820522796837, "y": 3063.10216239584, "lat": 51.66754713955779, "lon": 3.9543868411656886, "colonies": 2, "w": 0.6104650768733287, "detector": false}, {"x": 705.5330069636329, "y": 4877.161615533707, "lat": 51.683861368164074, "lon": 3.870229626397874, "colonies": 2, "w": 0.6104650768733287, "detector": true}, {"x": 4503.625329154295, "y": 4815.711019011128, "lat": 51.683308729672575, "lon": 3.9252987232326997, "colonies": 5, "w": 0.9652300374547499, "detector": false}, {"x": 2126.8592629726368, "y": 1749.2262080424753, "lat": 51.65573116922532, "lon": 3.8908376439462455, "colonies": 5, "w": 0.9652300374547499, "detector": true}, {"x": 4528.712590245338, "y": 948.4232446836572, "lat": 51.64852937515499, "lon": 3.9256624671054516, "colonies": 4, "w": 0.8633279910693955, "detector": false}, {"x": 1621.2009265721595, "y": 5343.315841848097, "lat": 51.68805359383822, "lon": 3.883506029669815, "colonies": 12, "w": 1.495327944128563, "detector": true}, {"x": 5147.456286577943, "y": 4229.19249263372, "lat": 51.678034041842146, "lon": 3.9346337225776264, "colonies": 19, "w": 1.8815797341007403, "detector": true}, {"x": 5344.014989675575, "y": 357.5171725064319, "lat": 51.64321522917722, "lon": 3.9374836560011426, "colonies": 4, "w": 0.8633279910693955, "detector": false}, {"x": 7034.424088064494, "y": 2969.0961122546037, "lat": 51.666701722838, "lon": 3.961993145090117, "colonies": 3, "w": 0.7476639720642815, "detector": false}, {"x": 6104.587857912079, "y": 2462.509460563269, "lat": 51.662145879626635, "lon": 3.948511313408559, "colonies": 2, "w": 0.6104650768733287, "detector": true}, {"x": 2067.9358433519537, "y": 3583.4778050869036, "lat": 51.67222699014445, "lon": 3.889983304655446, "colonies": 10, "w": 1.3650414097783978, "detector": true}, {"x": 2922.113085714986, "y": 5284.735383373837, "lat": 51.687526767118314, "lon": 3.9023681455922943, "colonies": 7, "w": 1.1420755821253061, "detector": false}, {"x": 1807.8305914478885, "y": 4751.5235961916305, "lat": 51.68273147831088, "lon": 3.8862120005139795, "colonies": 1, "w": 0.43166399553469775, "detector": true}, {"x": 4696.030930976629, "y": 4660.246710941286, "lat": 51.68191060556061, "lon": 3.9280884402325764, "colonies": 4, "w": 0.8633279910693955, "detector": false}, {"x": 1845.4291055721778, "y": 5373.158259550598, "lat": 51.68832197314835, "lon": 3.886757146876815, "colonies": 4, "w": 0.8633279910693955, "detector": true}, {"x": 5985.162670902337, "y": 613.0623703734209, "lat": 51.645513402354524, "lon": 3.9467797501315074, "colonies": 6, "w": 1.0573565293910456, "detector": true}, {"x": 7508.48673759739, "y": 3624.5343115722476, "lat": 51.67259622017791, "lon": 3.96886664887526, "colonies": 9, "w": 1.2949919866040933, "detector": true}, {"x": 29.005157953860277, "y": 2977.2749894442823, "lat": 51.66677527724769, "lon": 3.8604205500331674, "colonies": 6, "w": 1.0573565293910456, "detector": false}, {"x": 5599.726107484261, "y": 3028.6065804114837, "lat": 51.66723691333592, "lon": 3.9411912489488112, "colonies": 3, "w": 0.7476639720642815, "detector": false}, {"x": 3842.883651733288, "y": 1213.8391016740152, "lat": 51.650916317302446, "lon": 3.915718532881846, "colonies": 7, "w": 1.1420755821253061, "detector": false}, {"x": 4655.5484978833965, "y": 689.5617821750023, "lat": 51.64620137809326, "lon": 3.9275014795062413, "colonies": 5, "w": 0.9652300374547499, "detector": false}, {"x": 1138.298870017543, "y": 3294.155315973452, "lat": 51.66962505048907, "lon": 3.876504362027675, "colonies": 5, "w": 0.9652300374547499, "detector": true}, {"x": 6463.670891154342, "y": 1172.409616349423, "lat": 51.650543732989696, "lon": 3.95371771089759, "colonies": 6, "w": 1.0573565293910456, "detector": true}, {"x": 2165.042152262241, "y": 1534.6874520867705, "lat": 51.65380177583994, "lon": 3.891391263250189, "colonies": 10, "w": 1.3650414097783978, "detector": true}, {"x": 2075.2616821172164, "y": 5299.900761777459, "lat": 51.68766315264292, "lon": 3.8900895230646206, "colonies": 5, "w": 0.9652300374547499, "detector": true}, {"x": 3965.0450302897802, "y": 1456.3880193971906, "lat": 51.65309761212445, "lon": 3.9174897686008667, "colonies": 2, "w": 0.6104650768733287, "detector": false}, {"x": 5334.232283485255, "y": 2867.0711504983474, "lat": 51.665784190313495, "lon": 3.937341815111348, "colonies": 7, "w": 1.1420755821253061, "detector": false}], "colonies": [{"px": 5138.274431054631, "py": 1054.9216729649252, "sx": 5138.274431054631, "sy": 1054.9216729649252, "found": 32, "reloc": null, "switch": 95.0, "amax": 39.46625004046644, "pub_pri": null, "pub_sec": 213.0}, {"px": 6865.47281534633, "py": 1439.1188384515235, "sx": 6865.47281534633, "sy": 1439.1188384515235, "found": 25, "reloc": null, "switch": 95.0, "amax": 20.323325725335405, "pub_pri": null, "pub_sec": null}, {"px": 2059.582561502614, "py": 167.3717051664102, "sx": 1981.646400028211, "sy": 197.10287963433382, "found": 36, "reloc": 75.86926075939863, "switch": 75.86926075939863, "amax": 15.930360372748481, "pub_pri": null, "pub_sec": 107.0}, {"px": 4718.218795461813, "py": 4347.087837634799, "sx": 4718.218795461813, "sy": 4347.087837634799, "found": 0, "reloc": null, "switch": 95.0, "amax": 29.825201836172507, "pub_pri": null, "pub_sec": null}, {"px": 1116.2222130629218, "py": 4949.625448144139, "sx": 1578.4871595713146, "sy": 4670.473629297324, "found": 7, "reloc": 80.89318324062529, "switch": 80.89318324062529, "amax": 13.424221584351617, "pub_pri": null, "pub_sec": null}, {"px": 7614.910712304569, "py": 5043.865763898874, "sx": 7614.910712304569, "sy": 5043.865763898874, "found": 16, "reloc": null, "switch": 95.0, "amax": 12.697833956820206, "pub_pri": null, "pub_sec": null}, {"px": 4397.706947156226, "py": 1139.7325626441661, "sx": 4563.986870854759, "sy": 1120.1004425708336, "found": 24, "reloc": 107.72110204174304, "switch": 107.72110204174304, "amax": 33.39453746507402, "pub_pri": null, "pub_sec": null}, {"px": 3198.8583614134, "py": 4597.769641865775, "sx": 3342.5861308646404, "sy": 4560.481567054957, "found": 37, "reloc": 105.49770226039611, "switch": 105.49770226039611, "amax": 14.519018394544798, "pub_pri": null, "pub_sec": 192.0}, {"px": 972.6644001290748, "py": 3647.6707646053396, "sx": 972.6644001290748, "sy": 3647.6707646053396, "found": 1, "reloc": null, "switch": 95.0, "amax": 37.40676571448956, "pub_pri": 50.0, "pub_sec": 177.0}, {"px": 2279.209824153243, "py": 3593.4245270316396, "sx": 2279.209824153243, "sy": 3593.4245270316396, "found": 23, "reloc": null, "switch": 95.0, "amax": 11.960877217011314, "pub_pri": null, "pub_sec": null}, {"px": 6003.628175684017, "py": 3138.2920859240708, "sx": 6067.610169113659, "sy": 3114.1497048169035, "found": 36, "reloc": 108.2310835584062, "switch": 108.2310835584062, "amax": 63.352344454778596, "pub_pri": null, "pub_sec": 110.0}, {"px": 4525.202708966, "py": 3622.6048852076583, "sx": 4501.2152424096075, "sy": 3339.1359543616104, "found": 15, "reloc": 120.49678634092287, "switch": 120.49678634092287, "amax": 31.545053601140115, "pub_pri": null, "pub_sec": null}, {"px": 2628.0785500758184, "py": 325.50809236142015, "sx": 2628.0785500758184, "sy": 325.50809236142015, "found": 1, "reloc": null, "switch": 95.0, "amax": 29.69800960623317, "pub_pri": null, "pub_sec": 173.0}, {"px": 391.5506952548895, "py": 3768.955479925546, "sx": 362.79914094886453, "sy": 3788.4752129830836, "found": 27, "reloc": 91.74644168136331, "switch": 91.74644168136331, "amax": 50.34827140420813, "pub_pri": null, "pub_sec": 160.0}, {"px": 5570.520505954714, "py": 344.5388386905761, "sx": 5517.4282129127705, "sy": 486.37778195313365, "found": 24, "reloc": 97.36064618179567, "switch": 97.36064618179567, "amax": 43.94343601367533, "pub_pri": null, "pub_sec": null}, {"px": 6286.674005386627, "py": 2342.6179120159186, "sx": 6286.674005386627, "sy": 2342.6179120159186, "found": 24, "reloc": null, "switch": 95.0, "amax": 58.51873085817601, "pub_pri": null, "pub_sec": null}, {"px": 4012.139669109507, "py": 2535.2564671674086, "sx": 3959.796420034048, "sy": 2438.59764079148, "found": 23, "reloc": 114.32636880084442, "switch": 114.32636880084442, "amax": 13.750889798471713, "pub_pri": null, "pub_sec": 188.0}, {"px": 4010.720014502789, "py": 863.6357300068099, "sx": 3894.641136751481, "sy": 938.0436513909219, "found": 30, "reloc": 87.39849927265439, "switch": 87.39849927265439, "amax": 63.40976026956299, "pub_pri": null, "pub_sec": null}, {"px": 4165.101746547445, "py": 1203.803782873628, "sx": 4256.186187555237, "sy": 1141.5354374547148, "found": 26, "reloc": 87.9678760375025, "switch": 87.9678760375025, "amax": 57.88201129833796, "pub_pri": null, "pub_sec": 210.0}, {"px": 2032.0562167013966, "py": 5434.9247828660655, "sx": 2072.1556665632897, "sy": 5473.751285004991, "found": 24, "reloc": 90.27705724146549, "switch": 90.27705724146549, "amax": 36.32855356091318, "pub_pri": 37.0, "pub_sec": null}, {"px": 1938.901504155549, "py": 1012.3132136401337, "sx": 1922.9558348794985, "sy": 1081.8359550167752, "found": 14, "reloc": 84.70563914831916, "switch": 84.70563914831916, "amax": 66.67651545663216, "pub_pri": null, "pub_sec": null}, {"px": 2700.7599051892507, "py": 5525.991947714556, "sx": 2700.7599051892507, "sy": 5525.991947714556, "found": 26, "reloc": null, "switch": 95.0, "amax": 31.99730074965362, "pub_pri": null, "pub_sec": null}, {"px": 4219.0306358181815, "py": 4540.482365200831, "sx": 4346.432866038244, "sy": 4403.249425780716, "found": 13, "reloc": 100.13624831682696, "switch": 100.13624831682696, "amax": 63.831523760429555, "pub_pri": null, "pub_sec": null}, {"px": 1395.348905161084, "py": 1146.3503122684804, "sx": 1378.9085986361692, "sy": 1028.2866540918803, "found": 26, "reloc": 102.0559826924053, "switch": 102.0559826924053, "amax": 40.81555173629354, "pub_pri": null, "pub_sec": null}, {"px": 1243.723238819287, "py": 3197.703967957624, "sx": 1216.2780181718472, "sy": 3191.042131969819, "found": 28, "reloc": 99.60151284026894, "switch": 99.60151284026894, "amax": 48.874777465991585, "pub_pri": null, "pub_sec": null}, {"px": 2034.133980163736, "py": 1930.4069071000563, "sx": 2087.0305449882117, "sy": 1874.256775873666, "found": 27, "reloc": 102.33882846870556, "switch": 102.33882846870556, "amax": 63.70723922851951, "pub_pri": null, "pub_sec": null}, {"px": 7467.302154012327, "py": 3503.8605882278152, "sx": 7428.280660582887, "sy": 3420.305828118703, "found": 39, "reloc": 92.42166915083295, "switch": 92.42166915083295, "amax": 30.516556098164227, "pub_pri": 75.0, "pub_sec": 200.0}, {"px": 3684.64544160808, "py": 1677.0912364528508, "sx": 3665.9853980525154, "sy": 1649.172442040212, "found": 11, "reloc": 104.25378061154959, "switch": 104.25378061154959, "amax": 10.502905736320917, "pub_pri": 57.0, "pub_sec": null}, {"px": 7339.419027204227, "py": 1318.324203695954, "sx": 7339.419027204227, "sy": 1318.324203695954, "found": 25, "reloc": null, "switch": 95.0, "amax": 23.473761937908826, "pub_pri": null, "pub_sec": 187.0}, {"px": 7143.348274009398, "py": 3508.609907896947, "sx": 7251.939241319814, "sy": 3475.743178362342, "found": 26, "reloc": 111.80531624489224, "switch": 111.80531624489224, "amax": 24.796660310397648, "pub_pri": null, "pub_sec": null}, {"px": 5699.612344818734, "py": 1503.0724327636724, "sx": 5886.231913312783, "sy": 1536.8476630203481, "found": 35, "reloc": 107.8001470052804, "switch": 107.8001470052804, "amax": 19.011478945606136, "pub_pri": null, "pub_sec": null}, {"px": 5712.486906871203, "py": 2375.6689545202566, "sx": 5545.2234660378335, "sy": 2540.8235385612866, "found": 36, "reloc": 98.55427878484156, "switch": 98.55427878484156, "amax": 59.10753653641155, "pub_pri": null, "pub_sec": null}, {"px": 4047.1038300103064, "py": 2504.127426603199, "sx": 4047.1038300103064, "sy": 2504.127426603199, "found": 28, "reloc": null, "switch": 95.0, "amax": 55.468717817274246, "pub_pri": null, "pub_sec": null}, {"px": 6385.798088774956, "py": 26.81911488591132, "sx": 6473.780982417137, "sy": 121.04763392998585, "found": 20, "reloc": 88.6820820775674, "switch": 88.6820820775674, "amax": 82.33955557312743, "pub_pri": null, "pub_sec": 188.0}, {"px": 4030.547859031514, "py": 2457.5807091862202, "sx": 4146.083607633762, "sy": 2554.991265448348, "found": 20, "reloc": 89.84504361992985, "switch": 89.84504361992985, "amax": 36.80267524883072, "pub_pri": null, "pub_sec": null}, {"px": 7671.374731287818, "py": 29.96583497794397, "sx": 7779.595333846224, "sy": 1.0, "found": 2, "reloc": 93.55342632764712, "switch": 93.55342632764712, "amax": 21.86613544302733, "pub_pri": 19.0, "pub_sec": null}, {"px": 5408.955554216251, "py": 1883.9616100618018, "sx": 5439.668357857573, "sy": 2032.5329682032918, "found": 8, "reloc": 108.08469229072045, "switch": 108.08469229072045, "amax": 55.71599291292964, "pub_pri": null, "pub_sec": null}, {"px": 464.9865326971382, "py": 1601.198485239724, "sx": 464.9865326971382, "sy": 1601.198485239724, "found": 35, "reloc": null, "switch": 95.0, "amax": 55.37069416610918, "pub_pri": null, "pub_sec": 203.0}, {"px": 5617.2934290051, "py": 1506.5976656665052, "sx": 5617.2934290051, "sy": 1506.5976656665052, "found": 3, "reloc": null, "switch": 95.0, "amax": 56.30528871681566, "pub_pri": null, "pub_sec": null}, {"px": 4790.816974403911, "py": 4714.076324065373, "sx": 4790.816974403911, "sy": 4714.076324065373, "found": 32, "reloc": null, "switch": 95.0, "amax": 20.75616041057087, "pub_pri": null, "pub_sec": null}, {"px": 4217.11947507846, "py": 736.6377361262489, "sx": 4114.840755161704, "sy": 552.1593889014731, "found": 31, "reloc": 123.965869630558, "switch": 123.965869630558, "amax": 63.64530462296305, "pub_pri": null, "pub_sec": null}, {"px": 2929.7590404560256, "py": 931.9380983792805, "sx": 2929.7590404560256, "sy": 931.9380983792805, "found": 9, "reloc": null, "switch": 95.0, "amax": 38.93378805429775, "pub_pri": null, "pub_sec": null}, {"px": 2877.288617884318, "py": 5049.030670755645, "sx": 2921.0515172906594, "sy": 5043.405788170033, "found": 22, "reloc": 116.21995534527183, "switch": 116.21995534527183, "amax": 30.633780735632666, "pub_pri": null, "pub_sec": null}, {"px": 4833.68179933582, "py": 4086.2765783672257, "sx": 4774.2366444153995, "sy": 3959.978801056927, "found": 25, "reloc": 96.39473903665372, "switch": 96.39473903665372, "amax": 50.87188325493813, "pub_pri": null, "pub_sec": 204.0}, {"px": 2433.0643530335306, "py": 2628.4945681334893, "sx": 2518.2598779967, "sy": 2608.562543430349, "found": 24, "reloc": 80.28539536618423, "switch": 80.28539536618423, "amax": 20.28116738969954, "pub_pri": 40.0, "pub_sec": null}, {"px": 5083.6582011290575, "py": 1216.2172166110238, "sx": 5239.329291682881, "sy": 1270.6859072629231, "found": 5, "reloc": 90.16437022801846, "switch": 90.16437022801846, "amax": 23.09207591668992, "pub_pri": 45.0, "pub_sec": null}, {"px": 3968.4939647316187, "py": 743.2196297790341, "sx": 3889.917475515495, "sy": 867.8534438033528, "found": 12, "reloc": 123.1871301438803, "switch": 123.1871301438803, "amax": 22.634396600926262, "pub_pri": null, "pub_sec": null}, {"px": 384.5438913714575, "py": 2442.049881933609, "sx": 118.02934220505733, "sy": 2432.9536809908914, "found": 36, "reloc": 100.98554146208886, "switch": 100.98554146208886, "amax": 32.020378390763966, "pub_pri": null, "pub_sec": null}, {"px": 7125.1014187670835, "py": 4701.910416296285, "sx": 7079.674064896845, "sy": 4812.383061843017, "found": 35, "reloc": 72.5115260618649, "switch": 72.5115260618649, "amax": 19.968484043339785, "pub_pri": null, "pub_sec": null}, {"px": 3926.592901888696, "py": 3742.1842987146306, "sx": 4198.379408121224, "sy": 3547.892523811168, "found": 15, "reloc": 104.14698752709107, "switch": 104.14698752709107, "amax": 21.532953416411917, "pub_pri": null, "pub_sec": null}, {"px": 1781.3642846455716, "py": 2287.5064510456327, "sx": 1697.7044203754754, "sy": 2310.234775118744, "found": 14, "reloc": 91.37594214735999, "switch": 91.37594214735999, "amax": 69.65416331819718, "pub_pri": null, "pub_sec": 128.0}, {"px": 5041.694740906183, "py": 5538.663818463674, "sx": 5041.694740906183, "sy": 5538.663818463674, "found": 18, "reloc": null, "switch": 95.0, "amax": 75.18137021304489, "pub_pri": null, "pub_sec": null}, {"px": 3177.1101646070547, "py": 2526.9344047534305, "sx": 2918.3325175357418, "sy": 2501.8039313825175, "found": 18, "reloc": 115.90307036962825, "switch": 115.90307036962825, "amax": 15.073122376624827, "pub_pri": null, "pub_sec": null}, {"px": 3247.3871688591316, "py": 4543.64606242479, "sx": 3588.727997609864, "sy": 4477.379987313511, "found": 6, "reloc": 97.57156978391596, "switch": 97.57156978391596, "amax": 13.395296063781354, "pub_pri": null, "pub_sec": null}, {"px": 3921.0620217732094, "py": 3645.8168433757905, "sx": 3558.42267947063, "sy": 4150.74320059516, "found": 31, "reloc": 120.3526702676967, "switch": 120.3526702676967, "amax": 12.645248379836113, "pub_pri": 32.0, "pub_sec": null}, {"px": 2782.206086002768, "py": 3790.838513902613, "sx": 2682.784972925078, "sy": 3931.7471925003124, "found": 35, "reloc": 92.63972069769207, "switch": 92.63972069769207, "amax": 23.100507013015488, "pub_pri": null, "pub_sec": 135.0}, {"px": 4119.750921537739, "py": 778.1526211089914, "sx": 4119.750921537739, "sy": 778.1526211089914, "found": 39, "reloc": null, "switch": 95.0, "amax": 25.924457952549023, "pub_pri": null, "pub_sec": null}, {"px": 304.03923843473814, "py": 1291.2213046117643, "sx": 1.0, "sy": 1018.8827309109314, "found": 15, "reloc": 100.39415035558754, "switch": 100.39415035558754, "amax": 45.46865415760834, "pub_pri": null, "pub_sec": null}, {"px": 3720.9312881667006, "py": 2201.733881251609, "sx": 3650.2382956479505, "sy": 2159.761918836956, "found": 36, "reloc": 60.0, "switch": 60.0, "amax": 11.911307866414662, "pub_pri": null, "pub_sec": null}, {"px": 876.6090608953934, "py": 1625.2090543385755, "sx": 797.5290779314591, "sy": 1668.5702105004282, "found": 38, "reloc": 96.91438542828539, "switch": 96.91438542828539, "amax": 44.867238558569255, "pub_pri": null, "pub_sec": null}, {"px": 6809.024687852048, "py": 412.67329067190826, "sx": 6809.024687852048, "sy": 412.67329067190826, "found": 27, "reloc": null, "switch": 95.0, "amax": 54.95307735265084, "pub_pri": null, "pub_sec": null}, {"px": 2917.7474221217803, "py": 2930.8179999879208, "sx": 2842.8705643057065, "sy": 2837.6444791787576, "found": 35, "reloc": 96.5927489913625, "switch": 96.5927489913625, "amax": 17.337304318267282, "pub_pri": null, "pub_sec": null}, {"px": 6652.58450674804, "py": 3911.1841719147837, "sx": 6777.692630878355, "sy": 3942.5422927267746, "found": 35, "reloc": 93.4533797766206, "switch": 93.4533797766206, "amax": 29.455928641928825, "pub_pri": null, "pub_sec": 220.0}, {"px": 1474.7138864634885, "py": 3193.1343577185867, "sx": 1622.1558947480542, "sy": 3041.846334221423, "found": 3, "reloc": 102.90449704119514, "switch": 102.90449704119514, "amax": 34.37313955839387, "pub_pri": null, "pub_sec": null}], "public": [{"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.75, "lon": 4.0, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 4.05, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.75, "lon": 4.05, "year": 2026}, {"lat": 51.7, "lon": 4.05, "year": 2026}, {"lat": 51.7, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.95, "year": 2026}, {"lat": 51.7, "lon": 4.05, "year": 2026}, {"lat": 51.65, "lon": 3.95, "year": 2026}, {"lat": 51.7, "lon": 4.05, "year": 2026}, {"lat": 51.65, "lon": 3.95, "year": 2026}, {"lat": 51.6, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 4.0, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.75, "lon": 4.05, "year": 2026}, {"lat": 51.75, "lon": 4.05, "year": 2026}, {"lat": 51.7, "lon": 4.05, "year": 2026}, {"lat": 51.6, "lon": 3.9, "year": 2026}, {"lat": 51.75, "lon": 4.05, "year": 2026}, {"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.75, "lon": 4.05, "year": 2026}, {"lat": 51.6, "lon": 3.95, "year": 2026}, {"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 4.05, "year": 2026}, {"lat": 51.65, "lon": 3.85, "year": 2026}, {"lat": 51.7, "lon": 3.9, "year": 2026}, {"lat": 51.7, "lon": 3.9, "year": 2026}, {"lat": 51.7, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.6, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.85, "year": 2026}, {"lat": 51.6, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.75, "lon": 4.05, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.6, "lon": 3.95, "year": 2026}, {"lat": 51.6, "lon": 3.95, "year": 2026}, {"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.7, "lon": 3.8, "year": 2026}, {"lat": 51.65, "lon": 3.85, "year": 2026}, {"lat": 51.65, "lon": 3.85, "year": 2026}, {"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 4.0, "year": 2026}, {"lat": 51.637672, "lon": 4.045429, "year": 2026}, {"lat": 51.65, "lon": 3.95, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.95, "year": 2026}, {"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.7, "lon": 3.8, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.7, "lon": 3.85, "year": 2026}, {"lat": 51.75, "lon": 4.05, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 4.0, "year": 2026}, {"lat": 51.6, "lon": 4.0, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.75, "lon": 4.05, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.65, "lon": 3.95, "year": 2026}, {"lat": 51.7, "lon": 3.95, "year": 2026}, {"lat": 51.7, "lon": 3.85, "year": 2026}, {"lat": 51.7, "lon": 3.85, "year": 2026}, {"lat": 51.6, "lon": 3.9, "year": 2026}, {"lat": 51.6, "lon": 3.95, "year": 2026}, {"lat": 51.65, "lon": 3.9, "year": 2026}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.85, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.75, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.8, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.95, "year": 2025}, {"lat": 51.6, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.75, "lon": 3.85, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.6, "lon": 4.0, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.0, "year": 2025}, {"lat": 51.65, "lon": 3.85, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.8, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.85, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.75, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 3.9, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.7, "lon": 4.05, "year": 2025}, {"lat": 51.65, "lon": 3.8, "year": 2025}, {"lat": 51.6, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 3.9, "year": 2025}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.75, "lon": 4.05, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.05, "year": 2024}, {"lat": 51.65, "lon": 3.95, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.85, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.7, "lon": 4.05, "year": 2024}, {"lat": 51.6, "lon": 3.95, "year": 2024}, {"lat": 51.6, "lon": 3.95, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.65, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.6, "lon": 3.95, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.95, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 4.0, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.95, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.645953, "lon": 3.926504, "year": 2024}, {"lat": 51.645936, "lon": 3.926481, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.85, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.95, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.6, "lon": 3.85, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.85, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.75, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 4.0, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.95, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 4.05, "year": 2024}, {"lat": 51.7, "lon": 3.8, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.6, "lon": 3.95, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.75, "lon": 3.85, "year": 2024}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.75, "lon": 4.05, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 3.95, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 4.05, "year": 2023}, {"lat": 51.6, "lon": 3.95, "year": 2023}, {"lat": 51.7, "lon": 3.85, "year": 2023}, {"lat": 51.65, "lon": 3.85, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.6, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.85, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.685257, "lon": 3.897167, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.95, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 3.85, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 3.95, "year": 2023}, {"lat": 51.6, "lon": 3.95, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 4.05, "year": 2023}, {"lat": 51.6, "lon": 3.95, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.6, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.6, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.6, "lon": 3.95, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 3.95, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.6, "lon": 3.8, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.6, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.65, "lon": 3.9, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.65, "lon": 4.05, "year": 2023}, {"lat": 51.6, "lon": 4.05, "year": 2023}, {"lat": 51.6, "lon": 4.0, "year": 2023}, {"lat": 51.7, "lon": 3.8, "year": 2022}, {"lat": 51.7, "lon": 3.8, "year": 2022}, {"lat": 51.6, "lon": 3.85, "year": 2022}, {"lat": 51.598365, "lon": 3.848926, "year": 2022}, {"lat": 51.6, "lon": 3.8, "year": 2022}, {"lat": 51.6, "lon": 3.95, "year": 2022}, {"lat": 51.6, "lon": 3.85, "year": 2021}, {"lat": 51.6, "lon": 4.05, "year": 2020}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.689295, "lon": 3.983179, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}, {"lat": 51.65, "lon": 3.95, "year": 2017}], "historic": []};
+(function () {
+  const sim = createSim(D);
+  const P = D.P, G = D.grid, geo = D.geo, NB = P.n_bins;
+  const start = new Date(D.start_date + "T00:00:00");
+  const fmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" });
+  const dayDate = d => new Date(start.getTime() + d * 86400000);
+  const xy2ll = (x, y) => [geo.lat0 + (y / geo.R) * 180 / Math.PI, geo.lon0 + (x / (geo.R * geo.coslat)) * 180 / Math.PI];
+  const ll2xy = (lat, lon) => [geo.R * geo.coslat * (lon - geo.lon0) * Math.PI / 180, geo.R * (lat - geo.lat0) * Math.PI / 180];
+
+  const map = L.map("map", { preferCanvas: true, zoomControl: false, attributionControl: true });
+  L.control.zoom({ position: "topright" }).addTo(map);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: "abcd", maxZoom: 19,
+  }).addTo(map);
+  const bounds = [[G.south, G.west], [G.north, G.east]];
+  map.fitBounds(bounds, { paddingTopLeft: [300, 10], paddingBottomRight: [10, 80] });
+  L.rectangle(bounds, { color: "#1e2b24", weight: 1, fill: false, dashArray: "4 4", interactive: false }).addTo(map);
+
+  const canvas = document.createElement("canvas"); canvas.width = sim.NX; canvas.height = sim.NY;
+  const ctx = canvas.getContext("2d"), img = ctx.createImageData(sim.NX, sim.NY);
+  const overlay = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 1, interactive: false }).addTo(map);
+  const stops = [[0.06, [205, 184, 230, 0]], [0.12, [196, 170, 228, 95]], [0.3, [150, 100, 196, 165]], [0.55, [96, 44, 140, 205]], [0.8, [62, 20, 95, 225]], [1.0, [42, 11, 64, 235]]];
+  function colour(p) {
+    if (p <= stops[0][0]) return stops[0][1];
+    for (let k = 1; k < stops.length; k++) if (p <= stops[k][0]) {
+      const [p0, c0] = stops[k - 1], [p1, c1] = stops[k], t = (p - p0) / (p1 - p0);
+      return c0.map((v, i) => v + t * (c1[i] - v));
+    }
+    return stops[stops.length - 1][1];
+  }
+
+  const layers = {
+    bearings: L.layerGroup().addTo(map), searches: L.layerGroup().addTo(map), removed: L.layerGroup().addTo(map),
+    truth: L.layerGroup().addTo(map), public: L.layerGroup().addTo(map), historic: L.layerGroup().addTo(map), hives: L.layerGroup().addTo(map),
+  };
+  D.public.forEach(r => L.circleMarker([r.lat, r.lon], { radius: 3, color: "#5b6b78", weight: 1, fillColor: "#5b6b78", fillOpacity: 0.5 })
+    .bindTooltip(`Public record${r.year ? ", " + r.year : ""} (GBIF; Dutch records are 5×5 km squares)`).addTo(layers.public));
+  D.historic.forEach(r => L.marker([r.lat, r.lon], { icon: L.divIcon({ className: "x-mark", html: "×", iconSize: [16, 16] }), opacity: 0.45 })
+    .bindTooltip(`Historic removal ${r.date} (your file)`).addTo(layers.historic));
+
+  const hiveMarkers = D.hives.map((h, i) => {
+    const m = L.circleMarker([h.lat, h.lon], { radius: 7, weight: 2.5, bubblingMouseEvents: false });
+    m.on("click", e => { L.DomEvent.stop(e); sim.toggleDetector(i); styleHives(); rerun(); });
+    m.on("keypress", e => { if (e.originalEvent.key === "Enter") { sim.toggleDetector(i); styleHives(); rerun(); } });
+    m.addTo(layers.hives); return m;
+  });
+  function styleHives() {
+    let n = 0;
+    hiveMarkers.forEach((m, i) => {
+      const on = !!sim.S.detectors[i]; n += on;
+      m.setStyle(on ? { color: "#1e2b24", fillColor: "#e0a100", fillOpacity: 1, dashArray: null }
+                    : { color: "#8a6200", fillColor: "#ffffff", fillOpacity: 1, dashArray: null });
+      m.unbindTooltip().bindTooltip(`Apiary, ${D.hives[i].colonies} colonies: ${on ? "detector fitted" : "no detector"}. Click to ${on ? "remove" : "fit"} a detector.`);
+    });
+    document.getElementById("s-hives").textContent = `${n} of ${D.hives.length}`;
+  }
+
+  const el = id => document.getElementById(id);
+  const slider = el("day"), playBtn = el("play"), busy = el("busy");
+  slider.max = sim.T - 1;
+  const months = el("months"); months.innerHTML = "";
+  for (let d = 0; d < sim.T; d++) { const dt = dayDate(d); if (dt.getDate() === 1) { const s = document.createElement("span"); s.textContent = dt.toLocaleString("en-GB", { month: "short" }); months.appendChild(s); } }
+
+  let current = 0, playing = false, timer = null, job = 0;
+
+  function draw(d) {
+    const p3 = sim.mapFor(d), st = sim.stateAt(d);
+    for (let j = 0; j < sim.NY; j++) for (let i = 0; i < sim.NX; i++) {
+      const c = colour(p3[j * sim.NX + i]), o = ((sim.NY - 1 - j) * sim.NX + i) * 4;
+      img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = c[3];
+    }
+    ctx.putImageData(img, 0, 0); overlay.setUrl(canvas.toDataURL());
+
+    layers.truth.clearLayers();
+    if (el("o-truth").checked) st.active.forEach(a => L.circleMarker(xy2ll(a.x, a.y), { radius: 4, color: "#f2c200", weight: 2, fillColor: "#111", fillOpacity: 1, interactive: true })
+      .bindTooltip(`True ${a.secondary ? "secondary" : "primary"} nest (simulated)`).addTo(layers.truth));
+    layers.removed.clearLayers();
+    const col = { search: "var(--found)", public: "var(--public)", you: "var(--you)" };
+    const label = { search: "a detector-led search", public: "a public report", you: "you" };
+    st.removed.forEach(k => L.marker(xy2ll(k.x, k.y), { icon: L.divIcon({ className: "x-mark", html: `<span style="color:${col[k.how]}">×</span>`, iconSize: [16, 16] }), keyboard: false })
+      .bindTooltip(`Removed ${fmt.format(dayDate(k.day))} after ${label[k.how]}${k.colony < 0 ? " (no true nest within 100 m)" : ""}`).addTo(layers.removed));
+    layers.bearings.clearLayers();
+    if (el("o-bear").checked) {
+      const b = st.bearings, lim = Math.min(b.length, 600);
+      for (let k = 0; k < lim; k += 2) {
+        const h = D.hives[b[k]], ang = (b[k + 1] + 0.5) * 2 * Math.PI / NB;
+        L.polyline([[h.lat, h.lon], xy2ll(h.x + 400 * Math.sin(ang), h.y + 400 * Math.cos(ang))], { color: "#b07d00", weight: 1.5, opacity: 0.45, interactive: false }).addTo(layers.bearings);
+      }
+    }
+    layers.searches.clearLayers();
+    st.searches.forEach(s => L.circle(xy2ll(s.x, s.y), { radius: 200, color: s.success ? "#1f7a4d" : "#1e2b24", weight: 1.5, dashArray: "4 4", fill: false })
+      .bindTooltip(`Search, P = ${s.p.toFixed(2)}: ${s.success ? "nest found" : "nothing found"}`).addTo(layers.searches));
+
+    el("date").textContent = fmt.format(dayDate(d));
+    el("sub").textContent = `Day ${d + 1} of ${sim.T}, ${st.founded} colonies founded so far (simulated)`;
+    el("s-active").textContent = st.active.length;
+    const by = { search: 0, public: 0, you: 0 }; st.removed.forEach(k => by[k.how]++);
+    el("s-search").textContent = by.search; el("s-public").textContent = by.public; el("s-you").textContent = by.you;
+    el("s-det").textContent = st.windowDetections;
+    el("s-repro").textContent = st.activeRepro === null ? "–" : st.activeRepro;
+    slider.value = d;
+  }
+
+  // advance the simulation in small chunks so the page stays responsive
+  function goTo(d, then) {
+    const my = ++job;
+    let step = 0;
+    function run() {
+      if (my !== job) return;
+      const t0 = performance.now();
+      while (step <= d && performance.now() - t0 < 35) { sim.runTo(step); step++; }
+      if (step <= d) { busy.style.display = "block"; requestAnimationFrame(run); }
+      else { busy.style.display = "none"; current = d; draw(d); if (then) then(); }
+    }
+    run();
+  }
+  function rerun() { goTo(current); }
+
+  slider.addEventListener("input", () => { stop(); goTo(+slider.value); });
+  function stop() { playing = false; playBtn.textContent = "▶"; playBtn.setAttribute("aria-label", "Play"); clearTimeout(timer); }
+  function tick() {
+    if (!playing) return;
+    const next = Math.min(sim.T - 1, current + +el("speed").value);
+    goTo(next, () => { if (next >= sim.T - 1) stop(); else timer = setTimeout(tick, 220); });
+  }
+  playBtn.addEventListener("click", () => {
+    if (playing) { stop(); return; }
+    if (current >= sim.T - 1) current = 0;
+    playing = true; playBtn.textContent = "❚❚"; playBtn.setAttribute("aria-label", "Pause"); tick();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+    if (e.key === " ") { e.preventDefault(); playBtn.click(); }
+    if (e.key === "ArrowRight") { stop(); goTo(Math.min(sim.T - 1, current + 1)); }
+    if (e.key === "ArrowLeft") { stop(); goTo(Math.max(0, current - 1)); }
+  });
+  ["o-truth", "o-bear"].forEach(id => el(id).addEventListener("change", () => draw(current)));
+  el("o-public").addEventListener("change", e => e.target.checked ? layers.public.addTo(map) : layers.public.remove());
+  el("o-add").addEventListener("change", e => { el("mode").hidden = !e.target.checked; document.getElementById("app").classList.toggle("crosshair", e.target.checked); });
+  map.on("click", e => {
+    if (!el("o-add").checked) return;
+    const [x, y] = ll2xy(e.latlng.lat, e.latlng.lng);
+    sim.addRemoval(x, y, current); rerun();
+  });
+  el("reset").addEventListener("click", () => { stop(); sim.clearEdits(); styleHives(); rerun(); });
+
+  styleHives();
+  goTo(0);
+})();
+</script>
+</body>
+</html>
