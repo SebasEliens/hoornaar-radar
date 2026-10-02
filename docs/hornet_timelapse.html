@@ -73,8 +73,9 @@
   .x-mark { font-weight: 700; font-size: 18px; line-height: 16px; text-align: center; text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
   .crosshair .leaflet-container, .crosshair #map { cursor: crosshair !important; }
   @media (max-width: 640px) {
-    .drawer-wrap { --panel-w: calc(100vw - 44px); }
-    #drawer-toggle { width: 36px; height: 36px; font-size: 16px; }
+    .drawer-wrap { --panel-w: calc(100vw - 24px); top: 0; }
+    .panel { margin-left: 0; max-height: calc(100vh - 80px); border-radius: 0 0 10px 0; padding-top: 58px; }
+    #drawer-toggle { position: fixed; top: 12px; left: 12px; z-index: 700; width: 40px; height: 40px; font-size: 18px; margin: 0; }
     .date { font-size: 24px; }
     .timeline { flex-wrap: wrap; }
   }
@@ -617,6 +618,10 @@ const D = {"seed": 20260402, "P": {"lat0": 52.58, "lat1": 52.68, "lon0": 4.72, "
   goTo(0);
 })();
 
+  if (window.innerWidth <= 640) {
+    document.getElementById("app").classList.add("drawer-closed");
+    document.getElementById("drawer-toggle").textContent = "›";
+  }
   document.getElementById("drawer-toggle").addEventListener("click", () => {
     const closed = document.getElementById("app").classList.toggle("drawer-closed");
     document.getElementById("drawer-toggle").textContent = closed ? "›" : "‹";
