@@ -21,12 +21,13 @@
   #map { position: absolute; inset: 0; }
   .leaflet-container { font-family: var(--font); background: #e8ebe6; }
   .drawer-wrap {
+    --panel-w: 290px;
     position: absolute; top: 12px; left: 0; z-index: 500;
     display: flex; align-items: flex-start;
     transition: transform .25s ease;
   }
   .panel {
-    margin-left: 12px; width: 290px; max-height: calc(100vh - 110px);
+    margin-left: 12px; width: var(--panel-w); max-height: calc(100vh - 110px);
     overflow-y: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
     padding: 14px 16px 12px; box-shadow: 0 2px 10px rgba(30, 43, 36, .12);
   }
@@ -37,7 +38,7 @@
     cursor: pointer; font-size: 14px; color: var(--muted);
     box-shadow: 0 2px 6px rgba(30,43,36,.1);
   }
-  #app.drawer-closed .drawer-wrap { transform: translateX(-302px); }
+  #app.drawer-closed .drawer-wrap { transform: translateX(calc(-1 * var(--panel-w) - 12px)); }
   .date { font-size: 30px; font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; }
   .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
   .stats { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; margin: 12px 0 10px; font-size: 14px; }
@@ -72,7 +73,8 @@
   .x-mark { font-weight: 700; font-size: 18px; line-height: 16px; text-align: center; text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
   .crosshair .leaflet-container, .crosshair #map { cursor: crosshair !important; }
   @media (max-width: 640px) {
-    .panel { width: calc(100vw - 60px); max-height: 42%; }
+    .drawer-wrap { --panel-w: calc(100vw - 44px); }
+    #drawer-toggle { width: 36px; height: 36px; font-size: 16px; }
     .date { font-size: 24px; }
     .timeline { flex-wrap: wrap; }
   }
