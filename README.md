@@ -1,6 +1,6 @@
 # Hoornaar Radar
 
-A simulation study for locating Asian hornet (*Vespa velutina*) nests from detections at beehives, applied to the Schouwen-Duiveland area in Zeeland, Netherlands.
+A simulation study for locating Asian hornet (*Vespa velutina*) nests from detections at beehives.
 
 ## What it does
 
@@ -18,7 +18,7 @@ The live map is published at **[sebaseliens.github.io/hoornaar-radar/hornet_time
 
 | Component | Source |
 |---|---|
-| Study area and basemap | Real: Schouwen-Duiveland, OpenStreetMap tiles |
+| Study area and basemap | Real: OpenStreetMap tiles |
 | Public hornet records | Real (when online): GBIF / Observation.org API |
 | Beehive locations | `data/hives.csv` if present, otherwise simulated |
 | Historic removed nests | `data/removed_nests.csv` if present, otherwise none |
